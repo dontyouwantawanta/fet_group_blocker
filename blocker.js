@@ -1,5 +1,8 @@
 // Example group page to run on: https://fetlife.com/groups/210991/members
 
+// stats summary counters
+let already_blocked = 0;
+let new_blocks = 0;
 
 // get the group title
 const linkElement = document.querySelector("a.link.text-red-500.hover\\:underline");
@@ -16,13 +19,13 @@ async function blockUser(myID, blockedID, formAuthenticityToken) {
     console.log(`Blocking user: ${blockedID}`)
 
     // block user
-    await fetch(`https://fetlife.com/users/${myID}/blockeds/from_object`, {
+    block_response = await fetch(`https://fetlife.com/users/${myID}/blockeds/from_object`, {
         method: 'POST',
         body: JSON.stringify({
             "authenticity_token":formAuthenticityToken,
             "user_id":myID,
             "blocked_object_type":"User",
-            "blocked_object_id":blockedID
+            "blocked_object_id":blockedID //str
         }),
         credentials: 'include',
         headers: {
@@ -31,15 +34,23 @@ async function blockUser(myID, blockedID, formAuthenticityToken) {
         },
     });
 
+    // XXX pseudo code, need to check actual text. Determine if user was already blocked
+    const pageText = await block_response.text();
+    if (pageText.includes('already blocked')) {
+        already_blocked += 1;
+    } else {
+        new_blocks += 1;
+    }
+
     console.log(`  Adding note -> Part of the group: ${title}, on page ${window.location.href}`)
 
-    // add private note to account
+    // add private note to account. use previous csrf token, its accepted
     await fetch(`https://fetlife.com/users/${myID}/profile/note`, {
         method: 'POST',
         body: JSON.stringify({
             "note":{
                 "text":`Part of the group: ${title}, on page ${window.location.href}`,
-                "notable_id":blockedID
+                "notable_id":blockedID // int, not str
             }
         }),
         credentials: 'include',
@@ -53,7 +64,7 @@ async function blockUser(myID, blockedID, formAuthenticityToken) {
 
 // Main loop to fetch all pages and block users
 for (let i = 1; i <= lastPageNumber; i++) {
-    console.log("Fetching page: "+ i)
+    console.log(`Fetching page: ${i}/${lastPageNumber}`)
     // Grab the page
     const response = await fetch(`${window.location.href}?page=${i}`, { credentials: 'include' });
     const pageText = await response.text();
@@ -78,7 +89,13 @@ for (let i = 1; i <= lastPageNumber; i++) {
             blockUser(FL.user.id, user['id'], formAuthenticityToken);
 
         } catch (error) {
-            console.log(`Error processing ${user['nickname']}:`, error);
+            console.log(`  Error processing ${user['nickname']}:`, error);
         }
     }
 }
+
+console.log("=====================================================")
+console.log(`Group: ${title}`)
+console.log(`Previously Blocked: ${already_blocked}`)
+console.log(`New Blocks: ${new_blocks}`)
+console.log("=====================================================")
