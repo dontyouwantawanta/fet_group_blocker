@@ -3,6 +3,7 @@
 // stats summary counters
 let already_blocked = 0;
 let new_blocks = 0;
+let recently_blocked = 0;
 
 // get the group title
 const linkElement = document.querySelector("a.link.text-red-500.hover\\:underline");
@@ -12,12 +13,20 @@ const title = linkElement ? linkElement.title : null;
 const totalPagesMatch = document.querySelectorAll('a[href*="page="]');
 const lastPage = totalPagesMatch[totalPagesMatch.length - 2]; // the last <a> is 'next', so grab the one before it
 const lastPageNumber = lastPage ? lastPage.href.match(/page=(\d+)/)[1] : null;
-console.log("Total pages to fetch: "+lastPageNumber)
+console.log("Total pages to fetch: "+lastPageNumber);
+console.log(`Approximate time: ${7.5*20*lastPageNumber}`);
+
+// random sleep to try to avoid lockout
+function randomSleep(min, max) {
+    const time = Math.floor(Math.random() * (max - min + 1) + min); // Random time between min and max
+    return new Promise(resolve => setTimeout(resolve, time));
+}
 
 // function to block a user and add a private not to their profile
 async function blockUser(myID, blockedID, formAuthenticityToken) {
     console.log(`Blocking user: ${blockedID}`)
 
+    await randomSleep(5000, 10000);
     // block user
     block_response = await fetch(`https://fetlife.com/users/${myID}/blockeds/from_object`, {
         method: 'POST',
@@ -34,10 +43,18 @@ async function blockUser(myID, blockedID, formAuthenticityToken) {
         },
     });
 
-    // XXX pseudo code, need to check actual text. Determine if user was already blocked
+    if (block_response.status == 302){
+        console.log("UGH OH, we tripped the lockout protection. Sorry, your account is locked for 15min or so :(");
+    }
+
+    // Determine if user was already blocked
     const pageText = await block_response.text();
-    if (pageText.includes('already blocked')) {
+    if (pageText.includes('User already blocked!')) {
+        console.log('  Already blocked');
         already_blocked += 1;
+    } else if (pageText.includes('User was recently blocked!')) {
+        console.log('  Recently unblocked, try again in 48hrs');
+        recently_blocked += 1;
     } else {
         new_blocks += 1;
     }
@@ -45,7 +62,8 @@ async function blockUser(myID, blockedID, formAuthenticityToken) {
     console.log(`  Adding note -> Part of the group: ${title}, on page ${window.location.href}`)
 
     // add private note to account. use previous csrf token, its accepted
-    await fetch(`https://fetlife.com/users/${myID}/profile/note`, {
+    await randomSleep(5000, 10000);
+    block_response = await fetch(`https://fetlife.com/users/${myID}/profile/note`, {
         method: 'POST',
         body: JSON.stringify({
             "note":{
@@ -60,6 +78,9 @@ async function blockUser(myID, blockedID, formAuthenticityToken) {
             'x-csrf-token': formAuthenticityToken
         },
     });
+    if (block_response.status == 302){
+        console.log("UGH OH, we tripped the lockout protection. Sorry, your account is locked for 15min or so :(");
+    }
 }
 
 // Main loop to fetch all pages and block users
@@ -75,12 +96,16 @@ for (let i = 1; i <= lastPageNumber; i++) {
 
     // Grab the group members component
     const element = document.querySelector('div[data-component="GroupMembers"]');
-    const groupInfo = element.getAttribute('data-props');
+    const groupInfo = JSON.parse(element.getAttribute('data-props'));
 
-    for (const user of groupInfo['users']) {
+    for (const user of groupInfo.users) {
         try {
             // Fetch the page content
+            await randomSleep(5000, 10000);
             const response = await fetch(user['profilePath'], { credentials: 'include' });
+            if (response.status == 302){
+                console.log("UGH OH, we tripped the lockout protection. Sorry, your account is locked for 15min or so :(");
+            }
             const pageText = await response.text();
             // Grab csrf token
             const tokenMatch = pageText.match(/"formAuthenticityToken":"(.*?)"/);
@@ -97,5 +122,6 @@ for (let i = 1; i <= lastPageNumber; i++) {
 console.log("=====================================================")
 console.log(`Group: ${title}`)
 console.log(`Previously Blocked: ${already_blocked}`)
+console.log(`Recently Blocked (try again in 24/48hrs): ${recently_blocked}`)
 console.log(`New Blocks: ${new_blocks}`)
 console.log("=====================================================")
